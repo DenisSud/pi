@@ -11,13 +11,9 @@ import {
 	type ServiceProviderUpdate,
 } from "@earendil-works/chord";
 import {
-	AgentHarness,
 	type AgentHarness as AgentHarnessInstance,
 	type AgentLane,
 	BACKGROUND_CONTEXT,
-	createBashTool,
-	createReadTool,
-	createWriteTool,
 	type JsonlSessionMetadata,
 	JsonlSessionRepo,
 	type Session,
@@ -28,11 +24,8 @@ import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import lockfile from "proper-lockfile";
 import Type, { type Static } from "typebox";
 import { Check } from "typebox/value";
-import { findInitialModel, resolveCliModel } from "../core/model-resolver.ts";
-import { ModelRuntime } from "../core/model-runtime.ts";
-import { SettingsManager } from "../core/settings-manager.ts";
 import { COORDINATOR_PROTOCOL_VERSION } from "./coordinator.ts";
-import { createSessionPluginFacetLoader } from "./plugins/bundled.ts";
+import { createCodingAgentHarness } from "./coding-agent-harness.ts";
 import {
 	consumeInternalProcessRole,
 	encodeControlLine,
@@ -802,77 +795,16 @@ export async function runSessionWorkerWithHarness(
 	}
 }
 
-async function createCodingAgentHarness(
-	session: Session<JsonlSessionMetadata>,
-	options: SessionWorkerOptions,
-	executionEnv: NodeExecutionEnv,
-): Promise<SessionWorkerRuntime> {
-	const modelRuntime = await ModelRuntime.create();
-	const settingsManager = SettingsManager.create(session.metadata.cwd);
-	let resolved: Awaited<ReturnType<typeof findInitialModel>> | ReturnType<typeof resolveCliModel>;
-	if (options.model === undefined) {
-		resolved = await findInitialModel({
-			scopedModels: [],
-			isContinuing: true,
-			defaultProvider: settingsManager.getDefaultProvider(),
-			defaultModelId: settingsManager.getDefaultModel(),
-			defaultThinkingLevel: settingsManager.getDefaultThinkingLevel(),
-			modelRuntime,
-		});
-	} else {
-		resolved = resolveCliModel({
-			cliProvider: options.provider,
-			cliModel: options.model,
-			modelRuntime,
-		});
-		if (resolved.error) throw new Error(`Session worker could not resolve model: ${resolved.error}`);
-	}
-	if (!resolved.model) throw new Error("Session worker could not resolve a model");
-	const tools = [createReadTool(), createWriteTool(), createBashTool()];
-	const activeToolNames = tools.map((tool) => tool.name);
-	const harness = (
-		await AgentHarness.create(
-			{
-				session,
-				models: modelRuntime,
-				model: resolved.model,
-				thinkingLevel: resolved.thinkingLevel,
-				tools,
-				activeToolNames,
-				toolContext: { env: executionEnv },
-				resources: {},
-			},
-			TODO_CONTEXT,
-		)
-	).harness;
-	try {
-		const lane = await harness.lane("main", TODO_CONTEXT);
-		const currentActiveToolNames = await lane.getActiveTools(TODO_CONTEXT);
-		if (
-			currentActiveToolNames.length !== activeToolNames.length ||
-			currentActiveToolNames.some((name, index) => name !== activeToolNames[index])
-		) {
-			await lane.setActiveTools(activeToolNames, TODO_CONTEXT);
-		}
-		return {
-			harness,
-			lane,
-			modelRuntime,
-			settingsManager,
-			facetLoader: createSessionPluginFacetLoader(options.pluginManifestPaths),
-		};
-	} catch (error) {
-		try {
-			await harness.close(TODO_CONTEXT);
-		} catch (cleanupError) {
-			throw new AggregateError([error, cleanupError], "Session worker model selection and cleanup failed");
-		}
-		throw error;
-	}
-}
-
 export function runSessionWorkerProcess(args: readonly string[]): Promise<void> {
-	return runSessionWorkerWithHarness(args, createCodingAgentHarness);
+	return runSessionWorkerWithHarness(args, (session, options, executionEnv) =>
+		createCodingAgentHarness({
+			session,
+			executionEnv,
+			provider: options.provider,
+			model: options.model,
+			pluginManifestPaths: options.pluginManifestPaths,
+		}),
+	);
 }
 
 if (isDirectInternalProcessEntry(import.meta.url)) {
