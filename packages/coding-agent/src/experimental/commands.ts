@@ -65,7 +65,12 @@ async function runServerCommand(command: ServerCommand): Promise<void> {
 }
 
 async function runClientCommand(command: ClientCommand): Promise<void> {
-	if (command.prompt === undefined && process.stdin.isTTY === true && process.stdout.isTTY === true) {
+	if (
+		command.prompt === undefined &&
+		command.compact !== true &&
+		process.stdin.isTTY === true &&
+		process.stdout.isTTY === true
+	) {
 		await runClientTui(command);
 		return;
 	}
@@ -79,6 +84,10 @@ async function runClientCommand(command: ClientCommand): Promise<void> {
 	});
 	if (result.kind === "attached") {
 		console.log(`${result.serverId}\t${result.sessionId}\tattached`);
+		return;
+	}
+	if (result.kind === "compacted") {
+		console.log(`${result.serverId}\t${result.sessionId}\tcompacted`);
 		return;
 	}
 	if (result.kind === "prompted") {

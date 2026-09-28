@@ -12,6 +12,7 @@ export type ClientResult =
 			readonly sessions: readonly SessionAddress[];
 	  }
 	| { readonly kind: "attached"; readonly serverId: string; readonly sessionId: string }
+	| { readonly kind: "compacted"; readonly serverId: string; readonly sessionId: string }
 	| { readonly kind: "prompted"; readonly serverId: string; readonly sessionId: string; readonly text: string };
 
 export interface RunClientOptions {
@@ -75,6 +76,12 @@ export async function runClient(command: ClientCommand, options: RunClientOption
 			BACKGROUND_CONTEXT,
 		);
 		await match.management.attach(sessionId, BACKGROUND_CONTEXT);
+		if (command.compact === true) {
+			const compaction = await match.agent.compact({ customInstructions: null }, BACKGROUND_CONTEXT);
+			if (!compaction.accepted) throw new Error(compaction.error.message);
+			if (compaction.error !== null) throw new Error(compaction.error.message);
+			return { kind: "compacted", serverId: match.route.serverId, sessionId };
+		}
 		if (command.prompt === undefined) {
 			return { kind: "attached", serverId: match.route.serverId, sessionId };
 		}

@@ -20,6 +20,7 @@ export interface ClientCommand {
 	readonly model?: string;
 	readonly pluginPackages?: readonly string[];
 	readonly prompt?: string;
+	readonly compact?: boolean;
 }
 
 export interface ClientCommandContext {
@@ -33,6 +34,7 @@ const resumeOption = flagOption("--resume");
 const resumeShortOption = flagOption("-r");
 const providerOption = stringOption("--provider");
 const modelOption = stringOption("--model");
+const compactOption = flagOption("--compact");
 const pluginPackageOption = stringOption("-e", { repeatable: true });
 
 export const clientCommand = new Command<ClientCommand, ClientCommandContext>("client")
@@ -44,6 +46,7 @@ export const clientCommand = new Command<ClientCommand, ClientCommandContext>("c
 	.option(resumeShortOption)
 	.option(providerOption)
 	.option(modelOption)
+	.option(compactOption)
 	.option(pluginPackageOption)
 	.option(authTokenOption)
 	.option(authTokenFileOption)
@@ -55,6 +58,7 @@ export const clientCommand = new Command<ClientCommand, ClientCommandContext>("c
 		const shouldResume = input.value(resumeOption) === true || input.value(resumeShortOption) === true;
 		const provider = input.value(providerOption);
 		const model = input.value(modelOption);
+		const compact = input.value(compactOption) === true;
 		const pluginPackages = input.values(pluginPackageOption);
 		const promptArgs = input.remainingArgs[0] === "--" ? input.remainingArgs.slice(1) : input.remainingArgs;
 		const prompt =
@@ -64,13 +68,14 @@ export const clientCommand = new Command<ClientCommand, ClientCommandContext>("c
 				? promptArgs[0]
 				: undefined;
 		const modelErrors = provider !== undefined && model === undefined ? ["--provider requires --model"] : [];
+		const compactErrors = compact && prompt !== undefined ? ["--compact cannot be combined with a prompt"] : [];
 		const sessionSelectionErrors =
 			[sessionId !== undefined, shouldContinue, shouldResume].filter(Boolean).length > 1
 				? ["--session-id, --continue, and --resume are mutually exclusive"]
 				: [];
 		const unsupportedErrors =
 			input.remainingArgs.length === 0 || prompt !== undefined ? [] : unsupportedOptions("client", input);
-		const errors = [...authErrors, ...modelErrors, ...sessionSelectionErrors, ...unsupportedErrors];
+		const errors = [...authErrors, ...modelErrors, ...sessionSelectionErrors, ...compactErrors, ...unsupportedErrors];
 		if (errors.length > 0) return { ok: false, errors };
 		return {
 			ok: true,
@@ -84,6 +89,7 @@ export const clientCommand = new Command<ClientCommand, ClientCommandContext>("c
 				...(provider === undefined ? {} : { provider }),
 				...(model === undefined ? {} : { model }),
 				...(pluginPackages.length === 0 ? {} : { pluginPackages }),
+				...(compact ? { compact: true } : {}),
 				...(prompt === undefined ? {} : { prompt }),
 			},
 		};
