@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import {
 	combineFacetLoaders,
@@ -53,6 +54,12 @@ export interface RunClientTuiOptions extends OpenClientRuntimeOptions {
 	readonly facetLoader?: FacetLoader;
 }
 
+/** Where the TUI wants the client to reconnect after /bot or /new. */
+export interface ClientTuiSwitch {
+	readonly socketPath: string;
+	readonly sessionId: string;
+}
+
 export interface ClientTuiServer {
 	readonly serverId: string;
 	readonly radius: boolean;
@@ -91,7 +98,7 @@ const selectTheme = {
 export class ExperimentalClientTui implements Component {
 	readonly #ui: TUI;
 	readonly #requestRender: () => void;
-	readonly #finish: () => void;
+	readonly #finish: (target?: ClientTuiSwitch) => void;
 	readonly #documentContainer = new Container();
 	readonly #sessionHeading = new Text("", 1, 0);
 	readonly #pendingMessagesContainer = new Container();
@@ -113,6 +120,7 @@ export class ExperimentalClientTui implements Component {
 	#screen: "select" | "chat" = "chat";
 	#selectedServerId: string | undefined;
 	#sessionId: string | undefined;
+	readonly #botName: string | undefined;
 	#status = "Starting Session…";
 	#busy = false;
 	#closed = false;
@@ -121,11 +129,18 @@ export class ExperimentalClientTui implements Component {
 	#laneUnsubscribe: (() => void) | undefined;
 	#chatView: ExperimentalChatView | undefined;
 
-	private constructor(ui: TUI, requestRender: () => void, finish: () => void, loadedFacets: LoadedFacets) {
+	private constructor(
+		ui: TUI,
+		requestRender: () => void,
+		finish: (target?: ClientTuiSwitch) => void,
+		loadedFacets: LoadedFacets,
+	) {
 		this.#ui = ui;
 		this.#requestRender = requestRender;
 		this.#finish = finish;
 		this.#sharedFacets = loadedFacets;
+		const botName = process.env.PI_BOT_NAME?.trim();
+		this.#botName = botName !== undefined && botName.length > 0 ? botName : undefined;
 		setKeybindings(this.#keybindings);
 		this.#chatInput = new CustomEditor(ui, getEditorTheme(), this.#keybindings, { paddingX: 1 });
 		this.#chatInput.onSubmit = (message) => void this.#runPrompt(message);
@@ -299,6 +314,21 @@ export class ExperimentalClientTui implements Component {
 						if (this.#controller === controller) this.#controller = undefined;
 					});
 					env.own(commands.subscribe(() => this.#updateAutocomplete()));
+					env.own(
+						commands.replace({
+							name: "bot",
+							description: "Switch to another bot",
+							argumentHint: "[name]",
+							run: (args) => this.#switchBot(args),
+						}),
+					);
+					env.own(
+						commands.replace({
+							name: "new",
+							description: "Start a new session for this bot",
+							run: () => this.#newSession(),
+						}),
+					);
 					if (server.radius) {
 						env.own(
 							server.server.connection.subscribe((state) => this.#handleConnectionState(server.serverId, state)),
@@ -619,10 +649,74 @@ export class ExperimentalClientTui implements Component {
 		return snapshot === null ? undefined : snapshot;
 	}
 
+	async #switchBot(query: string): Promise<undefined> {
+		const current = this.#botName;
+		if (current === undefined) {
+			this.#status = "Error: /bot needs a client started by pi-bot (PI_BOT_NAME is unset).";
+			this.#rebuild();
+			return undefined;
+		}
+		let target = query.trim();
+		if (target.length === 0) {
+			const bots = listBotsForPicker();
+			if (bots === undefined) {
+				this.#status = "Error: could not list bots.";
+				this.#rebuild();
+				return undefined;
+			}
+			const picked = await this.#select(
+				"Switch bot",
+				bots.map((bot) => ({
+					value: bot.name,
+					label: bot.name === current ? `${bot.name} (current)` : bot.name,
+					description: bot.hasRoute ? "server running" : "server stopped",
+				})),
+				current,
+			);
+			if (picked === undefined) return undefined;
+			target = picked;
+		}
+		if (target === current) {
+			this.#status = `Already attached to ${target}.`;
+			this.#rebuild();
+			return undefined;
+		}
+		this.#status = `Switching to ${target}…`;
+		this.#rebuild();
+		const ref = resolveBotRef(target, false);
+		if (ref === undefined) {
+			this.#status = `Error: could not resolve bot '${target}'.`;
+			this.#rebuild();
+			return undefined;
+		}
+		this.#finish({ socketPath: ref.socketPath, sessionId: ref.sessionId });
+		return undefined;
+	}
+
+	async #newSession(): Promise<undefined> {
+		const current = this.#botName;
+		if (current === undefined) {
+			this.#status = "Error: /new needs a client started by pi-bot (PI_BOT_NAME is unset).";
+			this.#rebuild();
+			return undefined;
+		}
+		this.#status = "Starting a new session…";
+		this.#rebuild();
+		const ref = resolveBotRef(current, true);
+		if (ref === undefined) {
+			this.#status = `Error: could not start a new session for ${current}.`;
+			this.#rebuild();
+			return undefined;
+		}
+		this.#finish({ socketPath: ref.socketPath, sessionId: ref.sessionId });
+		return undefined;
+	}
+
 	#footer(): string {
+		const prefix = this.#botName === undefined ? "" : `bot ${this.#botName} · `;
 		const snapshot = this.#laneSnapshot();
-		if (!snapshot) return "/model · /thinking · /compact · /reload";
-		return `${snapshot.configuration.model.provider}/${snapshot.configuration.model.modelId} · thinking:${snapshot.configuration.thinkingLevel} · ${snapshot.stats.messageCount} messages · /model · /thinking · /compact · /reload`;
+		if (!snapshot) return `${prefix}/bot · /new · /model · /thinking · /compact · /reload`;
+		return `${prefix}${snapshot.configuration.model.provider}/${snapshot.configuration.model.modelId} · thinking:${snapshot.configuration.thinkingLevel} · ${snapshot.stats.messageCount} messages · /bot · /new · /model · /thinking · /compact · /reload`;
 	}
 }
 
@@ -724,7 +818,10 @@ async function prepareClientSession(
 	}
 }
 
-export async function runClientTui(command: ClientCommand, options: RunClientTuiOptions = {}): Promise<void> {
+export async function runClientTui(
+	command: ClientCommand,
+	options: RunClientTuiOptions = {},
+): Promise<ClientTuiSwitch | undefined> {
 	const cwd = process.cwd();
 	const agentDir = getAgentDir();
 	const settingsManager = SettingsManager.create(cwd, agentDir);
@@ -753,10 +850,12 @@ export async function runClientTui(command: ClientCommand, options: RunClientTui
 		showError: (error) => component?.showError(error),
 		onChanged: () => component?.refreshTheme(),
 	});
+	let switchTarget: ClientTuiSwitch | undefined;
 	try {
-		let finish!: () => void;
+		let finish!: (target?: ClientTuiSwitch) => void;
 		const finished = new Promise<void>((resolve) => {
-			finish = () => {
+			finish = (target) => {
+				if (target !== undefined) switchTarget = target;
 				themeController.disableAutoSync();
 				if (tuiStarted) {
 					tui.stop();
@@ -791,6 +890,47 @@ export async function runClientTui(command: ClientCommand, options: RunClientTui
 		if (tuiStarted) tui.stop();
 		await component?.close();
 		await runtime.dispose();
+	}
+	return switchTarget;
+}
+
+interface BotRegistryEntry {
+	readonly name: string;
+	readonly hasRoute: boolean;
+}
+
+interface BotRef {
+	readonly bot: string;
+	readonly serverId: string;
+	readonly socketPath: string;
+	readonly sessionId: string;
+}
+
+function botCli(): string {
+	return process.env.PI_BOT_BIN ?? "pi-bot";
+}
+
+function listBotsForPicker(): BotRegistryEntry[] | undefined {
+	const result = spawnSync(botCli(), ["list", "--json"], { encoding: "utf8", env: process.env });
+	if (result.error !== undefined || result.status !== 0) return undefined;
+	try {
+		const parsed: unknown = JSON.parse(result.stdout);
+		return Array.isArray(parsed) ? (parsed as BotRegistryEntry[]) : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function resolveBotRef(name: string, fresh: boolean): BotRef | undefined {
+	const args = ["resolve", "--json"];
+	if (fresh) args.push("--new");
+	args.push(name);
+	const result = spawnSync(botCli(), args, { encoding: "utf8", env: process.env });
+	if (result.error !== undefined || result.status !== 0) return undefined;
+	try {
+		return JSON.parse(result.stdout) as BotRef;
+	} catch {
+		return undefined;
 	}
 }
 
