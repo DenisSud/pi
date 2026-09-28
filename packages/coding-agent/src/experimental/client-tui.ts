@@ -56,6 +56,8 @@ export interface RunClientTuiOptions extends OpenClientRuntimeOptions {
 
 /** Where the TUI wants the client to reconnect after /bot or /new. */
 export interface ClientTuiSwitch {
+	readonly bot: string;
+	readonly dir: string;
 	readonly socketPath: string;
 	readonly sessionId: string;
 }
@@ -689,7 +691,7 @@ export class ExperimentalClientTui implements Component {
 			this.#rebuild();
 			return undefined;
 		}
-		this.#finish({ socketPath: ref.socketPath, sessionId: ref.sessionId });
+		this.#finish({ bot: ref.bot, dir: ref.dir, socketPath: ref.socketPath, sessionId: ref.sessionId });
 		return undefined;
 	}
 
@@ -708,7 +710,7 @@ export class ExperimentalClientTui implements Component {
 			this.#rebuild();
 			return undefined;
 		}
-		this.#finish({ socketPath: ref.socketPath, sessionId: ref.sessionId });
+		this.#finish({ bot: ref.bot, dir: ref.dir, socketPath: ref.socketPath, sessionId: ref.sessionId });
 		return undefined;
 	}
 
@@ -901,6 +903,7 @@ interface BotRegistryEntry {
 
 interface BotRef {
 	readonly bot: string;
+	readonly dir: string;
 	readonly serverId: string;
 	readonly socketPath: string;
 	readonly sessionId: string;
