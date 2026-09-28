@@ -88,10 +88,13 @@ export async function createCodingAgentHarness(input: CodingAgentHarnessInput): 
 	let currentModel = resolved.model;
 	let currentThinkingLevel = resolved.thinkingLevel ?? "off";
 
-	// The runner stores the session manager for `ctx.sessionManager`. Extensions in
-	// this deployment do not use it, so a minimal identity shim is enough.
+	// The runner stores the session manager for `ctx.sessionManager`. Extension
+	// code does not use it in this deployment, but the builtin tools do: the bash
+	// tool reads the session id and file for PI_SESSION_ID/PI_SESSION_FILE.
 	const sessionManagerShim = {
 		getSessionId: () => session.metadata.id,
+		getSessionFile: () => session.metadata.path,
+		getCwd: () => cwd,
 	} as unknown as ConstructorParameters<typeof ExtensionRunner>[3];
 	const runner = new ExtensionRunner(
 		extensions,
