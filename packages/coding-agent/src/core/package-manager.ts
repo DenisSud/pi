@@ -930,6 +930,10 @@ export class DefaultPackageManager implements PackageManager {
 		for (const pkg of globalSettings.packages ?? []) {
 			allPackages.push({ pkg, scope: "user" });
 		}
+		// Service-owned packages are always present (admin layer).
+		for (const pkg of this.settingsManager.getAdminSettings()?.packages ?? []) {
+			allPackages.push({ pkg, scope: "user" });
+		}
 
 		// Dedupe: project scope wins over global for same package identity
 		const packageSources = this.dedupePackages(allPackages);

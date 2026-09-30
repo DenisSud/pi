@@ -253,6 +253,73 @@ function deepMergeSettings(base: Settings, overrides: Settings): Settings {
 	return defaultTools === undefined ? merged : { ...merged, defaultTools };
 }
 
+/**
+ * Service-owned settings merged after global + project. Only the keys the
+ * service manages are allowed; everything else stays agent-controlled.
+ * Written by the bot reconciler and read via PI_ADMIN_SETTINGS.
+ */
+export interface AdminSettings {
+	defaultProvider?: string;
+	defaultModel?: string;
+	/** Mandatory package sources, always present (union with the agent's). */
+	packages?: PackageSource[];
+	/** Tools that stay active regardless of the agent's own selection. */
+	defaultTools?: string[];
+}
+
+function packageSourceKey(entry: PackageSource): string {
+	return typeof entry === "string" ? entry : entry.source;
+}
+
+/** Union by source, keeping the first (admin) entry on collision. */
+function unionPackageSources(first: PackageSource[], second: PackageSource[]): PackageSource[] {
+	const seen = new Set(first.map(packageSourceKey));
+	const result = [...first];
+	for (const entry of second) {
+		const key = packageSourceKey(entry);
+		if (seen.has(key)) continue;
+		seen.add(key);
+		result.push(entry);
+	}
+	return result;
+}
+
+function unionStrings(first: string[], second: string[]): string[] {
+	const result = [...first];
+	for (const value of second) if (!result.includes(value)) result.push(value);
+	return result;
+}
+
+/** Read and validate the admin settings file; malformed input means no admin layer. */
+export function readAdminSettingsFile(path: string | undefined): AdminSettings | undefined {
+	if (!path) return undefined;
+	let raw: unknown;
+	try {
+		raw = JSON.parse(stripBom(readFileSync(path, "utf-8")));
+	} catch {
+		return undefined;
+	}
+	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return undefined;
+	const input = raw as Record<string, unknown>;
+	const admin: AdminSettings = {};
+	if (typeof input.defaultProvider === "string" && input.defaultProvider)
+		admin.defaultProvider = input.defaultProvider;
+	if (typeof input.defaultModel === "string" && input.defaultModel) admin.defaultModel = input.defaultModel;
+	if (Array.isArray(input.packages)) {
+		const packages = input.packages.filter(
+			(entry): entry is PackageSource =>
+				typeof entry === "string" ||
+				(typeof entry === "object" && entry !== null && typeof (entry as { source?: unknown }).source === "string"),
+		);
+		if (packages.length > 0) admin.packages = packages;
+	}
+	if (Array.isArray(input.defaultTools)) {
+		const tools = input.defaultTools.filter((name): name is string => typeof name === "string" && name.length > 0);
+		if (tools.length > 0) admin.defaultTools = tools;
+	}
+	return admin;
+}
+
 function parseTimeoutSetting(value: unknown, settingName: string): number | undefined {
 	const timeoutMs = parseHttpIdleTimeoutMs(value);
 	if (timeoutMs !== undefined) {
@@ -268,6 +335,10 @@ export type SettingsScope = "global" | "project";
 
 export interface SettingsManagerCreateOptions {
 	projectTrusted?: boolean;
+	/** Explicit admin layer; overrides the PI_ADMIN_SETTINGS file. */
+	adminSettings?: AdminSettings;
+	/** Admin settings file path; defaults to $PI_ADMIN_SETTINGS. */
+	adminSettingsPath?: string;
 }
 
 export interface SettingsStorage {
@@ -382,6 +453,9 @@ export class SettingsManager {
 	private projectSettings: Settings;
 	private settings: Settings;
 	private projectTrusted: boolean;
+	private adminSettings: AdminSettings | undefined;
+	private adminSettingsPath: string | undefined;
+	private explicitAdminSettings: AdminSettings | undefined;
 	private modifiedFields = new Set<keyof Settings>(); // Track global fields modified during session
 	private modifiedNestedFields = new Map<keyof Settings, Set<string>>(); // Track global nested field modifications
 	private modifiedProjectFields = new Set<keyof Settings>(); // Track project fields modified during session
@@ -401,6 +475,8 @@ export class SettingsManager {
 		initialErrors: SettingsError[] = [],
 		projectTrusted = true,
 		settingsPaths: SettingsPaths = {},
+		adminSettingsPath: string | undefined = undefined,
+		explicitAdminSettings: AdminSettings | undefined = undefined,
 	) {
 		this.storage = storage;
 		this.globalSettings = initialGlobal;
@@ -410,7 +486,31 @@ export class SettingsManager {
 		this.projectSettingsLoadError = projectLoadError;
 		this.errors = [...initialErrors];
 		this.settingsPaths = settingsPaths;
+		this.adminSettingsPath = adminSettingsPath;
+		this.explicitAdminSettings = explicitAdminSettings;
+		this.adminSettings = explicitAdminSettings ?? readAdminSettingsFile(adminSettingsPath);
 		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.applyAdminSettings();
+	}
+
+	/**
+	 * Merge the service admin layer into the effective settings. The raw
+	 * global/project settings stay untouched, so persistence never writes
+	 * service-owned values back into the agent's files.
+	 */
+	private applyAdminSettings(): void {
+		const admin = this.adminSettings;
+		if (!admin) return;
+		const next: Settings = { ...this.settings };
+		if (admin.defaultProvider !== undefined) next.defaultProvider = admin.defaultProvider;
+		if (admin.defaultModel !== undefined) next.defaultModel = admin.defaultModel;
+		if (admin.packages && admin.packages.length > 0) {
+			next.packages = unionPackageSources(admin.packages, next.packages ?? []);
+		}
+		if (admin.defaultTools && admin.defaultTools.length > 0) {
+			next.defaultTools = unionStrings(next.defaultTools ?? [], admin.defaultTools);
+		}
+		this.settings = next;
 	}
 
 	/** Create a SettingsManager that loads from files */
@@ -459,6 +559,8 @@ export class SettingsManager {
 			initialErrors,
 			projectTrusted,
 			settingsPaths,
+			options.adminSettingsPath ?? process.env.PI_ADMIN_SETTINGS,
+			options.adminSettings,
 		);
 	}
 
@@ -592,6 +694,7 @@ export class SettingsManager {
 			this.projectSettings = {};
 			this.projectSettingsLoadError = null;
 			this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+			this.applyAdminSettings();
 			return;
 		}
 
@@ -602,10 +705,12 @@ export class SettingsManager {
 			this.recordError("project", projectLoad.error);
 		}
 		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.applyAdminSettings();
 	}
 
 	async reload(): Promise<void> {
 		await this.writeQueue;
+		this.adminSettings = this.explicitAdminSettings ?? readAdminSettingsFile(this.adminSettingsPath);
 		const globalLoad = SettingsManager.tryLoadFromStorage(this.storage, "global");
 		if (!globalLoad.error) {
 			this.globalSettings = globalLoad.settings;
@@ -630,11 +735,18 @@ export class SettingsManager {
 		}
 
 		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.applyAdminSettings();
 	}
 
 	/** Apply additional overrides on top of current settings */
 	applyOverrides(overrides: Partial<Settings>): void {
 		this.settings = deepMergeSettings(this.settings, overrides);
+		this.applyAdminSettings();
+	}
+
+	/** The service admin layer in effect, if any. */
+	getAdminSettings(): AdminSettings | undefined {
+		return this.adminSettings === undefined ? undefined : structuredClone(this.adminSettings);
 	}
 
 	/** Mark a global field as modified during this session */
@@ -735,6 +847,7 @@ export class SettingsManager {
 
 	private save(): void {
 		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.applyAdminSettings();
 
 		if (this.globalSettingsLoadError) {
 			return;
@@ -753,6 +866,7 @@ export class SettingsManager {
 		this.assertProjectTrustedForWrite();
 		this.projectSettings = structuredClone(settings);
 		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.applyAdminSettings();
 
 		if (this.projectSettingsLoadError) {
 			return;
