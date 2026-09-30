@@ -25,6 +25,7 @@ import type {
 	PrepareNextTurnContext,
 	ThinkingLevel,
 } from "@earendil-works/pi-agent-core";
+import { escapeSkillAttribute } from "@earendil-works/pi-agent-core";
 import { contentText, getCurrentSystemMessage, retryDelayMs } from "@earendil-works/pi-ai";
 import type {
 	AssistantMessage,
@@ -141,6 +142,7 @@ import { addUsageToTotals, createUsageTotals } from "./usage-totals.ts";
 export interface ParsedSkillBlock {
 	name: string;
 	location: string;
+	description: string | undefined;
 	content: string;
 	userMessage: string | undefined;
 }
@@ -150,14 +152,27 @@ export interface ParsedSkillBlock {
  * Returns null if the text doesn't contain a skill block.
  */
 export function parseSkillBlock(text: string): ParsedSkillBlock | null {
-	const match = text.match(/^<skill name="([^"]+)" location="([^"]+)">\n([\s\S]*?)\n<\/skill>(?:\n\n([\s\S]+))?$/);
+	const match = text.match(
+		/^<skill name="([^"]+)" location="([^"]+)"(?: description="([^"]*)")?>\n([\s\S]*?)\n<\/skill>(?:\n\n([\s\S]+))?$/,
+	);
 	if (!match) return null;
 	return {
-		name: match[1],
-		location: match[2],
-		content: match[3],
-		userMessage: match[4]?.trim() || undefined,
+		name: unescapeSkillAttribute(match[1]),
+		location: unescapeSkillAttribute(match[2]),
+		description: match[3] === undefined ? undefined : unescapeSkillAttribute(match[3]),
+		content: match[4],
+		userMessage: match[5]?.trim() || undefined,
 	};
+}
+
+/** Undo the attribute escaping the skill block formatter applies. */
+function unescapeSkillAttribute(value: string): string {
+	return value
+		.replace(/&quot;/g, '"')
+		.replace(/&apos;/g, "'")
+		.replace(/&lt;/g, "<")
+		.replace(/&gt;/g, ">")
+		.replace(/&amp;/g, "&");
 }
 
 /** Session-specific events that extend the core AgentEvent */
@@ -1798,7 +1813,7 @@ export class AgentSession {
 		try {
 			const content = readFileSync(skill.filePath, "utf-8");
 			const body = stripFrontmatter(content).trim();
-			const skillBlock = `<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}.\n\n${body}\n</skill>`;
+			const skillBlock = `<skill name="${escapeSkillAttribute(skill.name)}" location="${escapeSkillAttribute(skill.filePath)}" description="${escapeSkillAttribute(skill.description)}">\nReferences are relative to ${skill.baseDir}.\n\n${body}\n</skill>`;
 			return args ? `${skillBlock}\n\n${args}` : skillBlock;
 		} catch (err) {
 			// Emit error like extension commands do
