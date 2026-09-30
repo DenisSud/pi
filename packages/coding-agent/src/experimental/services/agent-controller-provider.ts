@@ -8,6 +8,17 @@ import type {
 	AgentQueueResponse,
 } from "./agent-controller.ts";
 
+/** The stock session expands `/skill:name args` before sending; so does this facade. */
+const SKILL_COMMAND = /^\/skill:([^\s]+)(?:\s+([\s\S]*))?$/;
+
+function parseSkillCommand(request: AgentPromptRequest): { name: string; args: string | undefined } | undefined {
+	if (request.images !== null && request.images.length > 0) return undefined;
+	const match = SKILL_COMMAND.exec(request.message.trim());
+	if (!match) return undefined;
+	const args = match[2]?.trim();
+	return { name: match[1]!, args: args ? args : undefined };
+}
+
 export function createAgentController(lane: AgentLane): AgentControllerService {
 	const queue = async (
 		operation: "steer" | "followUp" | "nextRun",
@@ -23,6 +34,15 @@ export function createAgentController(lane: AgentLane): AgentControllerService {
 
 	return {
 		async prompt(request, context) {
+			// `/skill:name args` is a skill invocation, not literal text: the web
+			// auto-sends it to kick off self-configuration.
+			const skill = parseSkillCommand(request);
+			if (skill) {
+				const result = await lane.skill(skill.name, skill.args, context);
+				return result.ok
+					? toOperationResponse(result.value)
+					: { accepted: false, operationId: operationId(result.error), error: toAgentError(result.error) };
+			}
 			const [message, images] = toTextPrompt(request);
 			const result = await lane.prompt(message, images, context);
 			return result.ok

@@ -165,6 +165,43 @@ describe("AgentController service", () => {
 		});
 	});
 
+	test("expands /skill: commands into skill invocations", async () => {
+		const prompt = vi.fn(async () => ({ ok: true as const, value: completed }));
+		const skill = vi.fn(async () => ({
+			ok: true as const,
+			value: { ...completed, operationId: "skill-1" },
+		}));
+		const controller = createAgentController({ prompt, skill } as unknown as AgentLane);
+
+		await expect(
+			controller.prompt({ message: "/skill:self-config Set me up.", images: null }, BACKGROUND_CONTEXT),
+		).resolves.toEqual({ accepted: true, operationId: "skill-1", error: null });
+		expect(skill).toHaveBeenCalledWith("self-config", "Set me up.", BACKGROUND_CONTEXT);
+		expect(prompt).not.toHaveBeenCalled();
+
+		await expect(controller.prompt({ message: "hello", images: null }, BACKGROUND_CONTEXT)).resolves.toMatchObject({
+			accepted: true,
+		});
+		expect(prompt).toHaveBeenCalledWith("hello", undefined, BACKGROUND_CONTEXT);
+
+		const images = [{ type: "image" as const, data: "aGk=", mimeType: "image/png" }];
+		await controller.prompt({ message: "/skill:self-config go", images }, BACKGROUND_CONTEXT);
+		expect(prompt).toHaveBeenLastCalledWith("/skill:self-config go", images, BACKGROUND_CONTEXT);
+	});
+
+	test("maps an unknown skill command to the lane error", async () => {
+		const controller = createAgentController({
+			skill: async () => ({ ok: false, error: new UnknownSkill({ name: "missing", message: "Unknown skill: missing" }) }),
+		} as unknown as AgentLane);
+		await expect(
+			controller.prompt({ message: "/skill:missing now", images: null }, BACKGROUND_CONTEXT),
+		).resolves.toEqual({
+			accepted: false,
+			operationId: null,
+			error: { code: "unknown_skill", message: "Unknown skill: missing" },
+		});
+	});
+
 	test.each(admissionErrors)("maps admission error %# to a stable response", async (error, code, operationId) => {
 		const controller = createAgentController({
 			prompt: async () => ({ ok: false, error }),
