@@ -2153,6 +2153,32 @@ Content`,
 			expect(sharedPaths[0].metadata.scope).toBe("project");
 		});
 
+		it("should resolve admin-layer packages and dedupe them against the agent's", async () => {
+			const adminPkg = join(tempDir, "admin-pkg");
+			mkdirSync(join(adminPkg, "extensions"), { recursive: true });
+			writeFileSync(join(adminPkg, "extensions", "admin.ts"), "export default function() {}");
+
+			const adminOnly = new DefaultPackageManager({
+				cwd: tempDir,
+				agentDir,
+				settingsManager: SettingsManager.inMemory({}, { adminSettings: { packages: [adminPkg] } }),
+			});
+			const result = await adminOnly.resolve();
+			expect(result.extensions.some((r) => isEnabled(r, "admin-pkg/extensions/admin.ts"))).toBe(true);
+
+			// The agent declaring the same package never duplicates it.
+			const both = new DefaultPackageManager({
+				cwd: tempDir,
+				agentDir,
+				settingsManager: SettingsManager.inMemory(
+					{ packages: [adminPkg] },
+					{ adminSettings: { packages: [adminPkg] } },
+				),
+			});
+			const deduped = await both.resolve();
+			expect(deduped.extensions.filter((r) => r.path.includes("admin-pkg")).length).toBe(1);
+		});
+
 		it("should keep both if different packages", async () => {
 			const pkg1Dir = join(tempDir, "pkg1");
 			const pkg2Dir = join(tempDir, "pkg2");
