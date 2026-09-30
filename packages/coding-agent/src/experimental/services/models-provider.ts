@@ -90,6 +90,14 @@ export function createModelsService(
 			});
 		},
 		async select(model, context) {
+			// The service enforces one model; the UI does not offer a picker, and
+			// this clamp is the safety net for every other caller.
+			const admin = settingsManager?.getAdminSettings();
+			if (admin?.defaultProvider && admin?.defaultModel) {
+				if (model.provider !== admin.defaultProvider || model.modelId !== admin.defaultModel) {
+					throw new Error(`The model is managed by the service: ${admin.defaultProvider}/${admin.defaultModel}.`);
+				}
+			}
 			const selected = modelRuntime?.getModel(model.provider, model.modelId);
 			if (selected === undefined) throw new Error(`Unknown model: ${model.provider}/${model.modelId}`);
 			await lane.setModel({ provider: selected.provider, modelId: selected.id }, context);
