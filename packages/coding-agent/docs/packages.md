@@ -1,47 +1,51 @@
 # Pi Packages
 
-Pi packages install and distribute extensions, skills, prompt templates, and themes as one unit. Use a package when a customization should be shared through npm or git, or when several resources belong together.
+Pi packages install and distribute extensions, skills, prompt templates, and
+themes as one unit. A bot uses them for shared capabilities: the
+[registry](registry.md) ships the curated ones, and npm/git sources work too.
 
-A package is an ordinary directory or npm package. It can expose conventional resource directories, declare explicit paths under the `pi` key in `package.json`, and carry its own runtime dependencies.
+A package is an ordinary directory or npm package. It can expose conventional
+resource directories, declare explicit paths under the `pi` key in
+`package.json`, and carry its own runtime dependencies.
 
-## Install and manage packages
+## Install a package
 
-Install from npm, git, or a local path:
+Declare it in `settings.json`:
 
-```bash
-pi install npm:@example/pi-tools@1.0.0
-pi install git:github.com/example/pi-tools@v1
-pi install ./local-package
+```json
+{
+  "packages": ["<base package path>", "$PI_REGISTRY_DIR/ptc", "npm:@example/pi-tools@1.0.0"]
+}
 ```
 
-`pi list` shows configured packages. Use `pi remove <source>` to remove one and `pi update --extensions` to reconcile package installations. See [Command Line](cli.md#package-commands) for every package command and option.
+(Resolve `$PI_REGISTRY_DIR` to its absolute path; settings.json does not expand
+variables.) Commit — the service stops your server, the reconciler installs
+the declared union, and the next attach loads the package. There is no
+`pi install` step to run.
 
-Personal installs are written to `~/.pi/agent/settings.json`. Add `--local` or `-l` to write the package declaration to `.pi/settings.json`. Pi reads declarations from that file only after project trust is granted.
-
-Project packages are installed and loaded only after project trust is resolved. Packages can execute extension code and can include skills that instruct the model to run programs. Review third-party package source before installing it. Review project package declarations before granting project trust.
-
-Use `--extension` or `-e` to try a package for one invocation without adding it to settings:
-
-```bash
-pi -e npm:@example/pi-tools
-```
+Declarations live only in the agent directory; `.pi/settings.json` is inert for
+bots. Do not run `pi update` — the service owns installations and updates. Do
+not `pi remove` a managed entry; removing a declaration from `settings.json`
+is the way to drop an optional package.
 
 ## Choose a source
 
 | Source | Example | Behavior |
 |---|---|---|
-| npm | `npm:@example/pi-tools@1.0.0` | Installed under the Pi npm directory |
+| Local | `$PI_REGISTRY_DIR/ptc` | Loaded from the path without copying; the registry is read-only in containers |
+| npm | `npm:@example/pi-tools@1.0.0` | Installed by the reconciler under the bot dir |
 | git | `git:github.com/example/pi-tools@v1` | Cloned and reconciled to the selected ref |
-| URL | `https://github.com/example/pi-tools` | Treated as a git source |
-| Local | `./pi-tools` | Loaded from the resolved path without copying |
 
-Versioned npm specifications are pinned. Git tags and commits are also pinned; package updates reconcile the checkout but do not move a configured ref.
-
-Relative local paths resolve from the settings file that contains them. A file path loads one extension. A directory follows normal package discovery rules.
+Versioned npm specifications are pinned. Git tags and commits are also pinned;
+updates reconcile the checkout but do not move a configured ref. Prefer the
+registry for shared resources; pull personal or experimental packages from npm
+or git only when the user asked for it.
 
 ## Create a package
 
-The simplest package uses conventional directories:
+Use this when the user wants to publish something for other bots, or when a
+registry item needs a change. The simplest package uses conventional
+directories:
 
 ```text
 my-pi-package/
@@ -52,7 +56,8 @@ my-pi-package/
 └── themes/
 ```
 
-Without a `pi` manifest, Pi discovers TypeScript and JavaScript extensions, skill directories, Markdown prompts, and JSON themes from those directories.
+Without a `pi` manifest, Pi discovers TypeScript and JavaScript extensions,
+skill directories, Markdown prompts, and JSON themes from those directories.
 
 Use an explicit manifest when resources live elsewhere or need filtering:
 
@@ -69,13 +74,14 @@ Use an explicit manifest when resources live elsewhere or need filtering:
 }
 ```
 
-Paths are relative to the package root. Arrays accept glob patterns and exclusions. List dot-prefixed or symlinked resource roots directly when traversal through a glob would not discover them.
-
-The `pi-package` keyword makes an npm package eligible for discovery in the [Pi package gallery](https://pi.dev/packages). Optional `pi.image` and `pi.video` fields add gallery previews.
+Paths are relative to the package root. Arrays accept glob patterns and
+exclusions. List dot-prefixed or symlinked resource roots directly when
+traversal through a glob would not discover them.
 
 ## Declare dependencies
 
-Put runtime packages imported by extensions in `dependencies`. Pi installs package dependencies when it installs an npm or git source.
+Put runtime packages imported by extensions in `dependencies`. Pi installs
+package dependencies when it installs an npm or git source.
 
 Pi supplies these packages to extensions and skills:
 
@@ -85,11 +91,15 @@ Pi supplies these packages to extensions and skills:
 - `@earendil-works/pi-tui`
 - `typebox`
 
-Declare the host-provided packages listed above in `peerDependencies` with a `"*"` range and do not bundle them. Pi suppresses automatic peer installation for managed npm packages and git packages installed with npm, pnpm, or Bun. Local packages are not installed or modified, so their dependency tree remains the package author's responsibility.
+Declare the host-provided packages above in `peerDependencies` with a `"*"`
+range and do not bundle them. Do not list them in `dependencies`: a physical
+copy can bypass Pi's extension module mapping and create duplicate classes,
+registries, and initialization work. Pi reports a warning when it detects this
+manifest configuration.
 
-Do not list host-provided packages in `dependencies`. A physical copy can bypass Pi's extension module mapping in compiled ESM and create duplicate classes, registries, and initialization work. Pi reports an extension warning when it detects this manifest configuration. Other Pi packages used as dependencies must be included in the published tarball and referenced through their `node_modules` resource paths.
-
-Installed packages load with separate module roots. Do not rely on two packages sharing one dependency instance or one package resolving another package’s undeclared dependency.
+Installed packages load with separate module roots. Do not rely on two
+packages sharing one dependency instance or one package resolving another
+package’s undeclared dependency.
 
 ## Select package resources
 
@@ -116,14 +126,16 @@ For each resource type:
 - Use `+path` to include one exact allowed path.
 - Use `-path` to exclude one exact path.
 
-Filters narrow the package manifest. They do not expose resources that the package itself did not declare.
-
-Run `pi config` to enable or disable discovered resources. It starts with personal configuration; press Tab to switch scope, or run `pi config --local` to start with project overrides.
+Filters narrow the package manifest. They do not expose resources that the
+package itself did not declare.
 
 ## Understand scope and identity
 
-The same package can appear in personal and project settings. A project entry normally replaces the personal entry. With `autoload: false`, the project entry instead acts as a filtering delta over the personal package.
+Bots have no project scope: declarations are personal to the agent directory,
+and mandatory packages from the service admin layer are unioned in. Pi
+identifies npm packages by package name, git packages by repository URL without
+the ref, and local packages by resolved absolute path — so declaring the same
+package twice never loads it twice.
 
-Pi identifies npm packages by package name, git packages by repository URL without the ref, and local packages by resolved absolute path. This prevents the same package from loading twice through equivalent declarations.
-
-Use [Extensions](extensions.md), [Skills](skills.md), [Prompt Templates](prompt-templates.md), and [Themes](themes.md) to design each resource before packaging it.
+Use [Extensions](extensions.md), [Skills](skills.md), and
+[Registry](registry.md) to design each resource before packaging it.

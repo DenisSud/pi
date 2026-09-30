@@ -6,6 +6,13 @@ Files, comments, instructions, command output, and model responses can steer the
 
 Safety comes from limiting the files, credentials, processes, and network services Pi can access and affect if a generated action is wrong or hostile. Watching the transcript, using project trust, and reviewing changes do not create a security boundary.
 
+In a bot, the service owns the trust decision (there are no prompts) and the
+per-user container is the deployment boundary. The permission model on this
+page still describes what a bot's extensions and commands can do — an
+extension you add runs with the bot's permissions — so treat extensions as
+trusted code, prefer the [registry](registry.md), and do not try to change
+the isolation.
+
 ## Choose how to run Pi
 
 Different ways of running Pi place different limits on what generated commands can access:

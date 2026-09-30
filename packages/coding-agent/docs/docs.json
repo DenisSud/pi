@@ -95,6 +95,23 @@
           ]
         },
         {
+          "title": "This Deployment",
+          "items": [
+            {
+              "title": "Self-configuration",
+              "path": "self-config.md"
+            },
+            {
+              "title": "Memory",
+              "path": "memory.md"
+            },
+            {
+              "title": "Registry",
+              "path": "registry.md"
+            }
+          ]
+        },
+        {
           "title": "Build on Pi",
           "items": [
             {
