@@ -49,7 +49,41 @@ describe("buildSystemPrompt", () => {
 			});
 
 			expect(defaultPrompt.startsWith("You are an expert coding assistant operating inside pi")).toBe(true);
-			expect(customPrompt.startsWith("You are Exact.\n\n<cwd>")).toBe(true);
+			expect(customPrompt.startsWith("You are Exact.\n\n<tools>")).toBe(true);
+		});
+
+		test("custom prompts keep the tools, rules and docs sections", () => {
+			const prompt = buildSystemPrompt({
+				customPrompt: "You are Exact.",
+				selectedTools: ["read", "bash"],
+				toolSnippets: { read: "Read file contents", bash: "Execute bash commands" },
+				contextFiles: [],
+				skills: [],
+				cwd: "/tmp",
+			});
+
+			expect(prompt).toContain("<tools>");
+			expect(prompt).toContain("<rules>");
+			expect(prompt).toContain("<docs>");
+			expect(prompt).toContain("- read: Read file contents");
+		});
+
+		test("renders behavior after the preamble and memory between docs and addendum", () => {
+			const prompt = buildSystemPrompt({
+				customPrompt: "You are Exact.",
+				behaviorPrompt: "Work in small steps.",
+				memoryPrompt: "Known facts.",
+				appendSystemPrompt: "Extra.",
+				contextFiles: [],
+				skills: [],
+				cwd: "/tmp",
+			});
+
+			expect(prompt.indexOf("You are Exact.")).toBeLessThan(prompt.indexOf("<behavior>"));
+			expect(prompt.indexOf("<behavior>")).toBeLessThan(prompt.indexOf("<tools>"));
+			expect(prompt).toContain("<behavior>\nWork in small steps.\n</behavior>");
+			expect(prompt.indexOf("</docs>")).toBeLessThan(prompt.indexOf("<memory>"));
+			expect(prompt.indexOf("</memory>")).toBeLessThan(prompt.indexOf("<addendum>"));
 		});
 
 		test("preserves an exact forced prompt without sections", () => {

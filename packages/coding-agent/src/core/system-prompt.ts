@@ -7,7 +7,7 @@ import { getDocsPath, getExamplesPath, getReadmePath } from "../config.ts";
 import { formatSkillsForPrompt, type Skill } from "./skills.ts";
 
 export interface BuildSystemPromptOptions {
-	/** Custom system prompt (replaces the default prefix). */
+	/** Custom preamble text (replaces the default preamble; tools, rules and docs stay). */
 	customPrompt?: string;
 	/** Exact full prompt replacement set by a before_agent_start handler. */
 	forceSystemPrompt?: string;
@@ -21,6 +21,10 @@ export interface BuildSystemPromptOptions {
 	promptGuidelines?: string[];
 	/** Text appended from user configuration before project context, skills, and cwd. */
 	appendSystemPrompt?: string;
+	/** Always-on behavior notes owned by the agent, rendered as `<behavior>` after the preamble. */
+	behaviorPrompt?: string;
+	/** Long-term memory section (user profile and notes policy), rendered after `<docs>`. */
+	memoryPrompt?: string;
 	/** Additional XML-wrapped prompt sections keyed by tag name. */
 	sections?: Record<string, string>;
 	/** Working directory. */
@@ -37,6 +41,8 @@ export type NormalizedBuildSystemPromptOptions = BuildSystemPromptOptions & {
 	toolGuidelines: Record<string, string[]>;
 	promptGuidelines: string[];
 	appendSystemPrompt: string;
+	behaviorPrompt: string;
+	memoryPrompt: string;
 	sections: Record<string, string>;
 	contextFiles: Array<{ path: string; content: string }>;
 	skills: Skill[];
@@ -62,6 +68,8 @@ export function normalizeBuildSystemPromptOptions(input: BuildSystemPromptOption
 		),
 		promptGuidelines: [...(input.promptGuidelines ?? [])],
 		appendSystemPrompt: input.appendSystemPrompt ?? "",
+		behaviorPrompt: input.behaviorPrompt ?? "",
+		memoryPrompt: input.memoryPrompt ?? "",
 		sections: { ...(input.sections ?? {}) },
 		cwd: input.cwd,
 		contextFiles: (input.contextFiles ?? []).map((file) => ({ ...file })),
@@ -127,6 +135,8 @@ export function buildSystemPromptSections(input: BuildSystemPromptOptions): Syst
 		toolGuidelines,
 		promptGuidelines,
 		appendSystemPrompt,
+		behaviorPrompt,
+		memoryPrompt,
 		sections: customSections,
 		cwd,
 		contextFiles,
@@ -140,25 +150,25 @@ export function buildSystemPromptSections(input: BuildSystemPromptOptions): Syst
 	}
 
 	const promptSections: Record<string, string> = {};
-	if (customPrompt) {
-		promptSections.preamble = customPrompt;
-	} else {
-		promptSections.preamble =
-			"You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.";
-		const visibleTools = selectedTools.filter((name) => !!toolSnippets[name]);
-		const tools =
-			visibleTools.length > 0 ? visibleTools.map((name) => `- ${name}: ${toolSnippets[name]}`).join("\n") : "(none)";
-		promptSections.tools = `${tools}\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.`;
-		promptSections.rules = buildRules(selectedTools, toolGuidelines, promptGuidelines);
-		promptSections.docs = `Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):
+	promptSections.preamble =
+		customPrompt ||
+		"You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.";
+	if (behaviorPrompt) promptSections.behavior = behaviorPrompt;
+	const visibleTools = selectedTools.filter((name) => !!toolSnippets[name]);
+	const tools =
+		visibleTools.length > 0 ? visibleTools.map((name) => `- ${name}: ${toolSnippets[name]}`).join("\n") : "(none)";
+	promptSections.tools = `${tools}\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.`;
+	promptSections.rules = buildRules(selectedTools, toolGuidelines, promptGuidelines);
+	promptSections.docs = `Pi documentation (read only when the user asks about pi itself, its SDK, extensions, skills, or how this deployment works):
 - Main documentation: ${getReadmePath()}
 - Additional docs: ${getDocsPath()}
 - Examples: ${getExamplesPath()} (extensions, custom tools, SDK)
 - When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory
-- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md)
+- Start with: docs/self-config.md (what is yours, what the service owns, commit→apply), docs/memory.md (notes), docs/registry.md (shared packages)
+- When asked about: extensions (docs/extensions.md, examples/extensions/), skills (docs/skills.md), pi packages (docs/packages.md), settings (docs/settings.md), environment variables (docs/environment-variables.md)
 - When working on pi topics, read the docs and examples, and follow .md cross-references before implementing
-- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)`;
-	}
+- Always read pi .md files completely and follow links to related docs`;
+	if (memoryPrompt) promptSections.memory = memoryPrompt;
 
 	if (appendSystemPrompt) promptSections.addendum = appendSystemPrompt;
 	if (contextFiles.length > 0) promptSections.project_context = renderProjectContext(contextFiles);
