@@ -37,8 +37,18 @@ interface SkillFrontmatter {
 
 /** Format a skill invocation prompt, optionally appending additional user instructions. */
 export function formatSkillInvocation(skill: Skill, additionalInstructions?: string): string {
-	const skillBlock = `<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${dirnameEnvPath(skill.filePath)}.\n\n${skill.content}\n</skill>`;
+	const skillBlock = `<skill name="${escapeSkillAttribute(skill.name)}" location="${escapeSkillAttribute(skill.filePath)}" description="${escapeSkillAttribute(skill.description)}">\nReferences are relative to ${dirnameEnvPath(skill.filePath)}.\n\n${skill.content}\n</skill>`;
 	return additionalInstructions ? `${skillBlock}\n\n${additionalInstructions}` : skillBlock;
+}
+
+/** XML-escape one value going into the skill block's attributes; parsers unescape it. */
+export function escapeSkillAttribute(value: string): string {
+	return value
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&apos;");
 }
 
 /**
