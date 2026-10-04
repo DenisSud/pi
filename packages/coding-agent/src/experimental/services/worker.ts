@@ -13,8 +13,10 @@ import {
 } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Conversation, Harness } from "@earendil-works/pi-durable";
+import { getAgentDir } from "../../config.ts";
 import type { ModelRuntime } from "../../core/model-runtime.ts";
 import type { SettingsManager } from "../../core/settings-manager.ts";
+import { loadSkills } from "../../core/skills.ts";
 import { AgentController } from "./agent-controller.ts";
 import { createAgentController } from "./agent-controller-provider.ts";
 import { createModelsServiceFacet } from "./models-provider.ts";
@@ -59,7 +61,20 @@ export async function createSessionWorkerServices(options: {
 	const agentControllerRuntimeFacet = defineFacet({
 		id: "@pi/agent-controller-runtime",
 		setup(env) {
-			env.provide(AgentController, createAgentController(options.harness, options.conversation));
+			// `/skill:name args` prompts expand like the stock session (`AgentSession._expandSkillCommand`);
+			// skills resolve per working directory like the prompt extension's loader.
+			const { settingsManager } = options;
+			const skillsFor =
+				settingsManager === undefined
+					? undefined
+					: (cwd: string) =>
+							loadSkills({
+								cwd,
+								agentDir: getAgentDir(),
+								skillPaths: settingsManager.getSkillPaths(),
+								includeDefaults: true,
+							}).skills;
+			env.provide(AgentController, createAgentController(options.harness, options.conversation, { skillsFor }));
 		},
 	});
 	let reloadPlugins = (): Promise<void> => Promise.reject(new Error("Session plugins are not ready"));

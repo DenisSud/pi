@@ -1,12 +1,16 @@
+import { readFileSync } from "node:fs";
 import type { Context } from "@earendil-works/chord";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import {
+	AgentDoc,
 	type Conversation,
 	ConversationBusy,
 	type Harness,
 	type SubmissionId,
 	type UserInput,
 } from "@earendil-works/pi-durable";
+import type { Skill } from "../../core/skills.ts";
+import { stripFrontmatter } from "../../utils/frontmatter.ts";
 import type {
 	AgentController as AgentControllerService,
 	AgentOperationError,
@@ -15,14 +19,62 @@ import type {
 	AgentQueueResponse,
 } from "./agent-controller.ts";
 
-export function createAgentController(harness: Harness, conversation: Conversation): AgentControllerService {
+export interface AgentControllerOptions {
+	/**
+	 * Skills a `/skill:name args` prompt may invoke, resolved per working directory — the durable
+	 * counterpart of `AgentSession`'s skill expansion (see `_expandSkillCommand`). When omitted, skill
+	 * commands pass through as literal text.
+	 */
+	readonly skillsFor?: (cwd: string) => readonly Skill[];
+}
+
+/** Expand `/skill:name args` to the skill's invocation block, mirroring `AgentSession._expandSkillCommand`. */
+export function expandSkillCommand(text: string, skills: readonly Skill[]): string {
+	if (!text.startsWith("/skill:")) return text;
+	const spaceIndex = text.indexOf(" ");
+	const skillName = spaceIndex === -1 ? text.slice(7) : text.slice(7, spaceIndex);
+	const args = spaceIndex === -1 ? "" : text.slice(spaceIndex + 1).trim();
+	const skill = skills.find((candidate) => candidate.name === skillName);
+	if (!skill) return text; // Unknown skill, pass through
+	try {
+		const content = readFileSync(skill.filePath, "utf-8");
+		const body = stripFrontmatter(content).trim();
+		const skillBlock = `<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}.\n\n${body}\n</skill>`;
+		return args ? `${skillBlock}\n\n${args}` : skillBlock;
+	} catch (error) {
+		console.error(`skill_expansion: ${skill.filePath}: ${error instanceof Error ? error.message : String(error)}`);
+		return text;
+	}
+}
+
+export function createAgentController(
+	harness: Harness,
+	conversation: Conversation,
+	options: AgentControllerOptions = {},
+): AgentControllerService {
+	/** The content a prompt submits as: `/skill:name` prompts expand like the stock session, others pass through. */
+	const toSubmittedInput = async (request: AgentPromptRequest, context: Context): Promise<UserInput> => {
+		if (options.skillsFor === undefined || !request.message.startsWith("/skill:")) return toInput(request);
+		const agent = await harness.documentState(AgentDoc, conversation.id, context);
+		if (agent === undefined) return toInput(request);
+		try {
+			const cwd = agent.value?.cwd ?? "";
+			return toInput({ ...request, message: expandSkillCommand(request.message, options.skillsFor(cwd)) });
+		} finally {
+			agent.dispose();
+		}
+	};
+
 	const queue = async (
 		whenBusy: "steer" | "followUp",
 		request: AgentPromptRequest,
 		context: Context,
 	): Promise<AgentQueueResponse> => {
 		try {
-			const submission = await conversation.submit({ type: "input", content: toInput(request), whenBusy }, context);
+			const submission = await conversation.submit(
+				{ type: "input", content: await toSubmittedInput(request, context), whenBusy },
+				context,
+			);
 			return { accepted: true, entryId: String(submission.id), error: null };
 		} catch (error) {
 			return { accepted: false, entryId: null, error: toAgentError(error) };
@@ -33,7 +85,7 @@ export function createAgentController(harness: Harness, conversation: Conversati
 		async prompt(request, context) {
 			try {
 				const submission = await conversation.submit(
-					{ type: "input", content: toInput(request), whenBusy: "reject" },
+					{ type: "input", content: await toSubmittedInput(request, context), whenBusy: "reject" },
 					context,
 				);
 				return { accepted: true, operationId: String(submission.id), error: null };
