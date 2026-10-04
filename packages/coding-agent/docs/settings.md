@@ -49,9 +49,25 @@ The model and provider are fixed by the service; do not set
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `defaultTools` | `string[]` | `read`, `bash`, `edit`, `write` | Built-in tools enabled at startup, unioned with the service floor. An empty array disables all non-floor built-in tools but not extension tools. |
+| `defaultTools` | `string[]` | `read`, `bash`, `edit`, `write` | Tools enabled at startup. Plain names replace the defaults; `+name` adds a tool and `-name` removes one. An empty array disables all built-in tools but not extension or SDK tools. |
+| `codemode.mode` | `"on"` \| `"only"` | `"on"` | How the `codemode` tool presents tools while it is active. `on`: declared tools get a note on calling them from scripts appended to their description, and `codemode` lists only tools that are not declared. `only`: `codemode` lists every tool scripts can call, and active built-in and extension tools are hidden from the model, so it reaches them through `codemode`. |
+| `codemode.inlineBudget` | number | `3000` | Estimated tokens (characters / 4) the `codemode` tool's description may spend on tool declarations. Tools that do not fit are left out and found with `searchTools()`. `0` lists only namespaces. |
 
-Available built-in tools are `read`, `bash`, `powershell`, `edit`, `write`, `grep`, `find`, and `ls`. The floor (`read`, `write`, `edit`, `bash`) cannot be removed.
+Available built-in tools are `read`, `bash`, `powershell`, `edit`, `write`, `grep`, `find`, and `ls`. `defaultTools` can also name `codemode` and `tool_search`, which built-in extensions register inactive, and other extension tools registered inactive.
+
+A list of only `+name` and `-name` entries changes the inherited selection instead of replacing it. For example, this enables `codemode` next to the default tools:
+
+```json
+{
+  "defaultTools": ["+codemode"]
+}
+```
+
+This replaces `bash` with `powershell` and enables `grep`: `["-bash", "+powershell", "+grep"]`. Project settings apply on top of user settings: a project list with only `+name` and `-name` entries changes the user's selection, and a project list with a plain name replaces it. In one list, plain names form the selection, and `+name` and `-name` then apply in order.
+
+`/reload` enables tools newly added to `defaultTools`. It does not disable tools removed from it or re-enable unchanged tools you turned off. `--tools`, `--no-tools`, and `--no-builtin-tools` override `defaultTools`, also on reload.
+
+CLI tool options override this setting for one invocation; `--tools` does not accept `+name` or `-name`. See [Command Line](cli.md#tools).
 
 ## Sessions and context
 
@@ -86,13 +102,14 @@ The web client renders the transcript; terminal-oriented keys below are inert:
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `theme` | string | `"system"` | Terminal-only; inert for bots. |
-| `quietStartup` | boolean | `false` | Terminal-only; inert for bots. |
-| `tuiMode` | `"regular" \| "fullscreen"` | `"regular"` | Terminal-only; inert for bots. |
-| `fullscreenExitOutput` | `"transcript" \| "resume-hint"` | `"transcript"` | Terminal-only; inert for bots. |
-| `fullscreenScrollbar` | `"auto" \| "always" \| "hidden"` | `"auto"` | Terminal-only; inert for bots. |
-| `fullscreenCopyOnSelect` | boolean | `true` | Terminal-only; inert for bots. |
-| `editorPaddingX` | number | `0` | Terminal-only; inert for bots. |
+| `theme` | string | `"system"` | Built-in or custom theme name. `system` derives colors from the terminal theme. |
+| `quietStartup` | boolean \| `"header"` | `false` | `true` hides the startup header and loaded-resource listing. `"header"` keeps the header (version and key hints) but hides the model scope line and loaded-resource listing. |
+| `tuiMode` | `"regular" \| "fullscreen"` | `"fullscreen"` | Interactive terminal UI mode. |
+| `fullscreenExitOutput` | `"transcript" \| "resume-hint"` | `"transcript"` | Output printed when fullscreen mode exits. |
+| `fullscreenScrollbar` | `"auto" \| "always" \| "hidden"` | `"auto"` | Fullscreen transcript scrollbar behavior. |
+| `fullscreenCopyOnSelect` | boolean | `true` | Copy selected text automatically in fullscreen mode. |
+| `fullscreenWheelScrollLines` | `"auto"` \| number | `"auto"` | Lines per mouse-wheel event in fullscreen mode, from 1 to 100. `"auto"` moves one line per event in local macOS terminals, which already accelerate wheel and trackpad input; elsewhere, and over SSH, it speeds up fast wheel spins to at most 6 lines per event. Alt+wheel moves five times as far. |
+| `editorPaddingX` | number | `0` | Horizontal editor padding from 0 to 3 cells. |
 | `outputPad` | `0 \| 1` | `1` | Horizontal transcript padding. |
 | `autocompleteMaxVisible` | number | `5` | Terminal-only; inert for bots. |
 | `showHardwareCursor` | boolean | `false` | Terminal-only; inert for bots. |
@@ -146,7 +163,9 @@ supported.
 Resource arrays support glob exclusions with `!pattern`, exact inclusion with
 `+path`, and exact exclusion with `-path`.
 
-## Service-owned
+The built-in extensions are named `builtin:mcp`, `builtin:llama.cpp`, `builtin:codemode`, and `builtin:tool-search` in `extensions`. They load by default; `-builtin:mcp` disables one. A `+builtin:<name>` or `-builtin:<name>` entry in project settings overrides the user setting. `pi config` lists them under Built-in. `--no-extensions` disables them too, and `-e builtin:<name>` loads one explicitly.
+
+## Updates, telemetry, and warnings
 
 | Setting | Why |
 |---|---|
