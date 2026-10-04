@@ -116,8 +116,8 @@ model-facing results and tell the model where the full output is.
 Keep branch-sensitive tool state in tool-result `details` and rebuild it from
 `ctx.sessionManager.getBranch()` during `session_start`. There is no
 `appendEntry` in a bot; state that must survive a restart belongs in files
-under the agent dir (and, for durable knowledge, notes — see
-[Memory](memory.md)).
+under the agent dir, and durable knowledge belongs in memory — see
+[Memory](memory.md).
 
 ## Errors and cleanup
 

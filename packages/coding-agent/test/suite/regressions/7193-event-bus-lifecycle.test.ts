@@ -38,6 +38,7 @@ describe("issue #7193 extension event-bus lifecycle", () => {
 			getAgentsFiles: () => ({ agentsFiles: [] }),
 			getSystemPrompt: () => undefined,
 			getSystemPromptSource: () => undefined,
+			getBehaviorPrompt: () => undefined,
 			getAppendSystemPrompt: () => [],
 			getAppendSystemPromptSources: () => [],
 			extendResources: () => {},

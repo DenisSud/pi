@@ -1,8 +1,10 @@
 # Configuration
 
-Pi supports user-level and project configuration. User-level configuration lives in the agent directory, which defaults to `~/.pi/agent`. Project configuration lives in `.pi` under the working directory and loads after [project trust](security.md#understand-project-trust) is granted. The only exception is `sessionDir`, which Pi reads before resolving trust so it can locate sessions.
-
-In interactive mode, use `/settings` to change common preferences. For other options, ask Pi to update the configuration or edit the relevant files directly. Run `/reload` after manually changing settings, keybindings, instructions, or resources.
+A bot's configuration lives in its agent directory — the bot directory itself
+(`PI_CODING_AGENT_DIR`, for example `~/Bots/<name>`). There is no interactive
+settings UI: you edit files and commit, and the service restarts the server
+from the commit. See [Self-configuration](self-config.md) for the contract and
+[Memory](memory.md) for how memory works.
 
 ## Agent directory
 
@@ -10,18 +12,29 @@ The agent directory is shown as `<agent-dir>` below. Set its location with the `
 
 | Path | Responsibility |
 |---|---|
-| `<agent-dir>/settings.json` | User-level [settings](settings.md), including preferences, defaults, resource paths, and Pi package declarations. |
-| `<agent-dir>/keybindings.json` | Custom terminal UI and application [keybindings](keybindings.md). |
-| `<agent-dir>/mcp.json` | [MCP servers](mcp.md) available in every project. |
-| `<agent-dir>/models.json` | [Compatible endpoints, models, and model overrides](models.md#configure-a-compatible-endpoint). |
-| `<agent-dir>/auth.json` | Saved API keys and OAuth credentials. |
-| `<agent-dir>/AGENTS.override.md`, `AGENTS.md`, `AGENTS.MD`, `CLAUDE.md`, or `CLAUDE.MD` | User instructions applied across working directories. |
-| `<agent-dir>/SYSTEM.md` | Replaces Pi’s default system prompt. |
-| `<agent-dir>/APPEND_SYSTEM.md` | Adds instructions to Pi’s system prompt. |
-| `<agent-dir>/extensions/` | User [extensions](extensions.md). |
-| `<agent-dir>/skills/` | User [skills](skills.md) and supporting files. |
-| `<agent-dir>/prompts/` | User [prompt templates](prompt-templates.md) exposed as slash commands. |
-| `<agent-dir>/themes/` | User [theme](themes.md) files. |
+| `settings.json` | Preferences, defaults, resource paths and package declarations. Service-managed keys are shadowed — see below. |
+| `SOUL.md` | Identity, voice, values, boundaries. Becomes the prompt preamble. |
+| `BEHAVIOR.md` | Always-on working rules. Becomes the `<behavior>` section. |
+| `extensions/` | Your extensions (a subset of the API works — see [Extensions](extensions.md)). |
+| `skills/` | Your skills; also load them from a registry package (see [Registry](registry.md)). |
+| `models.json`, `models-store.json`, `auth.json`, `trust.json` | Shared symlinks into the service's agent dir. Service-owned; do not edit. |
+| `sessions/` | Session files (gitignored). |
+| `AGENTS.md` | Optional instructions of your own; not scaffolded. `AGENTS.override.md` / `CLAUDE.md` behave as upstream. |
+| `keybindings.json`, `themes/`, `prompts/` | Terminal-UI surfaces; there is no terminal UI. Leave them empty. |
+| `SYSTEM.md`, `APPEND_SYSTEM.md` | Pi-native prompt files; not scaffolded for bots — identity comes from `SOUL.md` + `BEHAVIOR.md`. |
+
+## Shadowed settings
+
+`PI_ADMIN_SETTINGS` (written by the service into the bot dir) is merged after
+your settings and wins where it applies:
+
+- the model (`defaultProvider`, `defaultModel`) — fixed by the service;
+- `packages` — the union; mandatory packages always come back;
+- `defaultTools` — the union floor: `read`, `write`, `edit`, `bash` are always
+  active, and extension tools are always active regardless.
+
+Everything else in `settings.json` is yours, including `defaultThinkingLevel`,
+compaction, retry and display preferences. See [Settings](settings.md).
 
 ## Project `.pi` directory
 

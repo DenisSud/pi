@@ -164,7 +164,8 @@ export function buildSystemPromptSections(input: BuildSystemPromptOptions): Syst
 - Additional docs: ${getDocsPath()}
 - Examples: ${getExamplesPath()} (extensions, custom tools, SDK)
 - When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory
-- When asked about: extensions (docs/extensions.md, examples/extensions/), skills (docs/skills.md), pi packages (docs/packages.md), settings (docs/settings.md), environment variables (docs/environment-variables.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), MCP servers (docs/mcp.md)
+- Start with: docs/self-config.md (what is yours, what the service owns, commit→apply), docs/memory.md (memory), docs/registry.md (shared packages)
+- When asked about: extensions (docs/extensions.md, examples/extensions/), skills (docs/skills.md), pi packages (docs/packages.md), settings (docs/settings.md), environment variables (docs/environment-variables.md)
 - When working on pi topics, read the docs and examples, and follow .md cross-references before implementing
 - Always read pi .md files completely and follow links to related docs`;
 	if (memoryPrompt) promptSections.memory = memoryPrompt;

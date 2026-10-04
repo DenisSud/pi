@@ -14,7 +14,7 @@ reach. This page is the contract.
 | Preferences: thinking level, compaction, and the rest | `settings.json` | next restart |
 | Reusable procedures | `skills/<name>/SKILL.md` | next restart |
 | Your own tools | `extensions/<name>/index.ts` | next restart |
-| Notes, durable knowledge | `notes/` via `memory_write` | immediately (auto-committed) |
+| Durable knowledge | `mem0_memory` add | immediately |
 | Packages | `settings.json` `packages` | installed by the reconciler on apply |
 
 `SOUL.md` and `BEHAVIOR.md` are plain files you and your user edit together —

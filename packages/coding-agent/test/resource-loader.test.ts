@@ -497,6 +497,27 @@ Content`,
 			expect(loader.getSystemPrompt()).toBe("You are a helpful assistant.");
 		});
 
+		it("falls back to SOUL.md and discovers BEHAVIOR.md in the agent dir", async () => {
+			writeFileSync(join(agentDir, "SOUL.md"), "You are bot.");
+			writeFileSync(join(agentDir, "BEHAVIOR.md"), "Ask first.");
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			expect(loader.getSystemPrompt()).toBe("You are bot.");
+			expect(loader.getBehaviorPrompt()).toBe("Ask first.");
+		});
+
+		it("prefers SYSTEM.md over SOUL.md", async () => {
+			writeFileSync(join(agentDir, "SYSTEM.md"), "Native prompt.");
+			writeFileSync(join(agentDir, "SOUL.md"), "Bot soul.");
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			expect(loader.getSystemPrompt()).toBe("Native prompt.");
+		});
+
 		it("should skip project resources that require trust when project is not trusted", async () => {
 			const piDir = join(cwd, ".pi");
 			const extensionsDir = join(piDir, "extensions");

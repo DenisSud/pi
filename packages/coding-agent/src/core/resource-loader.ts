@@ -158,6 +158,7 @@ export interface ResourceLoader {
 	getAgentsFiles(): { agentsFiles: Array<{ path: string; content: string }> };
 	getSystemPrompt(): string | undefined;
 	getSystemPromptSource(): { path: string } | undefined;
+	getBehaviorPrompt(): string | undefined;
 	getAppendSystemPrompt(): string[];
 	getAppendSystemPromptSources(): Array<{ path: string }>;
 	extendResources(paths: ResourceExtensionPaths): void;
@@ -354,6 +355,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private agentsFiles: Array<{ path: string; content: string }>;
 	private systemPrompt?: string;
 	private systemPromptSourcePath?: string;
+	private behaviorPrompt?: string;
 	private appendSystemPrompt: string[];
 	private appendSystemPromptSourcePaths: string[];
 	private lastSkillPaths: string[];
@@ -444,6 +446,10 @@ export class DefaultResourceLoader implements ResourceLoader {
 
 	getSystemPromptSource(): { path: string } | undefined {
 		return this.systemPromptSourcePath ? { path: this.systemPromptSourcePath } : undefined;
+	}
+
+	getBehaviorPrompt(): string | undefined {
+		return this.behaviorPrompt;
 	}
 
 	getAppendSystemPrompt(): string[] {
@@ -647,6 +653,9 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.systemPrompt = this.systemPromptOverride ? this.systemPromptOverride(baseSystemPrompt) : baseSystemPrompt;
 		this.systemPromptSourcePath =
 			systemPromptSource && existsSync(systemPromptSource) ? resolvePath(systemPromptSource) : undefined;
+
+		const behaviorPromptSource = this.discoverBehaviorFile();
+		this.behaviorPrompt = resolvePromptInput(behaviorPromptSource, "behavior prompt");
 
 		let appendSources = this.appendSystemPromptSource;
 		if (!appendSources) {
@@ -1207,6 +1216,21 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const globalPath = join(this.agentDir, "SYSTEM.md");
 		if (existsSync(globalPath)) {
 			return globalPath;
+		}
+
+		// Bot agent dirs carry their identity as SOUL.md.
+		const soulPath = join(this.agentDir, "SOUL.md");
+		if (existsSync(soulPath)) {
+			return soulPath;
+		}
+
+		return undefined;
+	}
+
+	private discoverBehaviorFile(): string | undefined {
+		const behaviorPath = join(this.agentDir, "BEHAVIOR.md");
+		if (existsSync(behaviorPath)) {
+			return behaviorPath;
 		}
 
 		return undefined;
